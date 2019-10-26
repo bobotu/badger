@@ -145,7 +145,9 @@ func (t *Table) DecrRef() error {
 			t.remoteIndexFd.Close()
 		}
 
-		t.cacheManager.Free(filename)
+		if t.isRemote() {
+			t.cacheManager.Free(filename)
+		}
 	}
 	return nil
 }

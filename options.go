@@ -158,6 +158,8 @@ var DefaultOptions = Options{
 	ValueLogLoadingMode: options.FileIO,
 	// table.MemoryMap to mmap() the tables.
 	// table.Nothing to not preload the tables.
+	RemoteLevelStart: 		 3,
+	MaxSize: 				 1 << 30,
 	MaxTableSize:            64 << 20,
 	NumCompactors:           3,
 	MaxSubCompaction:        3,

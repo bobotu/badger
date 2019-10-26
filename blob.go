@@ -689,7 +689,7 @@ func (h *blobGCHandler) doGCIfNeeded() error {
 		return err
 	}
 	file.Close()
-	blobFile, err := newBlobFile(file.Name(), newFid, uint32(writer.Offset()))
+	blobFile, err := newBlobFile(file.Name(), newFid, uint32(writer.Offset()), true)
 	if err != nil {
 		return err
 	}

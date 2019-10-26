@@ -125,7 +125,8 @@ func newLevelsController(kv *DB, mf *Manifest, opt options.TableBuilderOptions) 
 			return nil, errors.Wrapf(err, "Opening table: %q", fname)
 		}
 		if isRemote {
-			kv.cacheManger.Add(fname, t, true)
+			ex, _ := fileExist(fname)
+			kv.cacheManger.Add(fname, t, true, ex)
 		}
 
 		tables[level] = append(tables[level], t)
@@ -153,6 +154,17 @@ func newLevelsController(kv *DB, mf *Manifest, opt options.TableBuilderOptions) 
 	}
 
 	return s, nil
+}
+
+func fileExist(filePath string) (bool, error) {
+	_, err := os.Stat(filePath)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
 }
 
 // Closes the tables, for cleanup in newLevelsController.  (We Close() instead of using DecrRef()

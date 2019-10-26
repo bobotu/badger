@@ -154,8 +154,9 @@ func (t *Table) NewIterator(reversed bool) *Iterator {
 }
 
 func (t *Table) NewIteratorNoRef(reversed bool) *Iterator {
-	// TODO: Pin
-	t.cacheManager.Pin(t.filename)
+	if t.IsRemote() {
+		t.cacheManager.Pin(t.filename)
+	}
 	it := &Iterator{t: t, reversed: reversed}
 	binary.BigEndian.PutUint64(it.bi.globalTs[:], t.globalTs)
 	return it
