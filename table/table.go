@@ -19,6 +19,11 @@ package table
 import (
 	"encoding/binary"
 	"fmt"
+	"github.com/coocood/badger/fileutil"
+	"github.com/coocood/badger/options"
+	"github.com/coocood/badger/y"
+	"github.com/coocood/bbloom"
+	"github.com/pingcap/errors"
 	"math"
 	"os"
 	"path"
@@ -27,12 +32,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-
-	"github.com/coocood/badger/fileutil"
-	"github.com/coocood/badger/options"
-	"github.com/coocood/badger/y"
-	"github.com/coocood/bbloom"
-	"github.com/pingcap/errors"
 )
 
 const fileSuffix = ".sst"
@@ -41,9 +40,10 @@ const fileSuffix = ".sst"
 type Table struct {
 	sync.Mutex
 
-	fd        *File // Own fd.
+	fd        *os.File // Own fd.
 	tableSize int      // Initialized in OpenTable, using fd.Stat().
 
+	filename string
 	globalTs        uint64
 	blockEndOffsets []uint32
 	baseKeys        []byte
@@ -62,35 +62,35 @@ type Table struct {
 	hIdx hashIndex
 }
 
-type File struct {
-	fd        *os.File
-	flag      int
-	writeable bool
-	isRemote  bool
-	id        string
-	data      []byte
+func (t *Table) CacheID() string {
+	return t.fd.Name()
 }
 
-func (f *File) Deallocate() error {
-	err := y.Munmap(f.data)
+func (t *Table) Deallocate() error {
+	err := y.Munmap(t.mmap)
 	if err != nil {
 		return err
 	}
-	err = f.fd.Close()
+	t.blockEndOffsets = nil
+	t.baseKeys = nil
+	t.baseKeysEndOffs = nil
+	err = t.fd.Close()
 	return err
 }
 
-func (f *File) Init() error {
+func (t *Table) Init() error  {
+	// set flag
+	// open file
 	var err error
-	f.fd, err = os.OpenFile(f.id, f.flag, 0666)
+	t.fd, err = os.OpenFile(t.filename, os.O_RDWR, 0666)
 	if err != nil {
 		return err
 	}
-	fileInfo, err := f.fd.Stat()
+	fileInfo, err := t.fd.Stat()
 	if err != nil {
 		return err
 	}
-	f.data, err = y.Mmap(f.fd, f.writeable, fileInfo.Size())
+	t.mmap, err = y.Mmap(t.fd, false, fileInfo.Size())
 	if err != nil {
 		return err
 	}
@@ -137,7 +137,7 @@ type block struct {
 // entry.  Returns a table with one reference count on it (decrementing which may delete the file!
 // -- consider t.Close() instead).  The fd has to writeable because we call Truncate on it before
 // deleting.
-func OpenTable(file *File, loadingMode options.FileLoadingMode) (*Table, error) {
+func OpenTable(fd *os.File, loadingMode options.FileLoadingMode) (*Table, error) {
 	fileInfo, err := fd.Stat()
 	if err != nil {
 		// It's OK to ignore fd.Close() errs in this function because we have only read
@@ -333,7 +333,6 @@ func (t *Table) HasGlobalTs() bool {
 
 // SetGlobalTs update the global ts of external ingested tables.
 func (t *Table) SetGlobalTs(ts uint64) error {
-	// unused!!!
 	var buf [8]byte
 	encodeTs := math.MaxUint64 - ts
 	binary.BigEndian.PutUint64(buf[:], encodeTs)
@@ -393,10 +392,10 @@ func NewFilename(id uint64, dir string) string {
 }
 
 func (t *Table) loadToRAM() error {
-	t.mmap = make([]byte, t.tableSize)
-	read, err := t.fd.ReadAt(t.mmap, 0)
-	if err != nil || read != t.tableSize {
-		return y.Wrapf(err, "Unable to load file in memory. Table file: %s", t.Filename())
-	}
+//	t.mmap = make([]byte, t.tableSize)
+//	read, err := t.fd.ReadAt(t.mmap, 0)
+//	if err != nil || read != t.tableSize {
+//		return y.Wrapf(err, "Unable to load file in memory. Table file: %s", t.Filename())
+//	}
 	return nil
 }
