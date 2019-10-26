@@ -1,25 +1,30 @@
 package cache
 
 import (
+	"fmt"
 	"github.com/stretchr/testify/assert"
+	"os"
 	"testing"
 )
 
 func TestCacheMgr(t *testing.T) {
-	cacheMgr := &CacheManagerImpl{
-		tmp: make(map[string]CacheEntry),
-	}
-	assert.NoError(t, cacheMgr.Add("1", CacheEntryImpl{
-		id: "1",
-	}))
-	assert.Error(t, cacheMgr.Add("1", CacheEntryImpl{
-		id: "1",
-	}))
+	tmpdir := os.TempDir()
+	fmt.Println(tmpdir)
+	cacheMgr := NewCacheManager(tmpdir, 10)
 
-	assert.NoError(t, cacheMgr.Pin("1"))
-	assert.Error(t, cacheMgr.Pin("1"))
-	assert.NoError(t, cacheMgr.Release("1"))
-	assert.Error(t, cacheMgr.Release("1"))
-	assert.NoError(t, cacheMgr.Free("1"))
-	assert.Error(t, cacheMgr.Free("1"))
+	for i := 0; i < 10; i++ {
+		fileName := fmt.Sprintf("%s/test%d.txt", tmpdir, i)
+		f, err := os.Open(fileName)
+		assert.NoError(t, err)
+		f.Write([]byte("x"))
+		f.Close()
+		entry := &CacheEntryImpl{
+			id: fileName,
+			pinned: 0,
+			inLocal: false,
+			fileSize: 1,
+		}
+		err = cacheMgr.Add(fileName, entry, true)
+		assert.NoError(t, err)
+	}
 }
