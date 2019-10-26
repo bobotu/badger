@@ -579,6 +579,7 @@ func (h *blobGCHandler) getLogicalToPhysical(logicalFid uint32) uint32 {
 
 func (h *blobGCHandler) writeDiscardToFile(physicalFid uint32, ptrs []blobPointer) error {
 	file := h.getPhysicalFile(physicalFid)
+	h.manager.Pin(file.path)
 	discardInfo := make([]byte, uint32(len(ptrs)*8+8))
 	totalDiscard := file.totalDiscard + uint32(len(discardInfo))
 	for i, ptr := range ptrs {

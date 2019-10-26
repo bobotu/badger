@@ -17,6 +17,7 @@
 package table
 
 import (
+	"bytes"
 	"encoding/binary"
 	"math"
 	"os"
@@ -150,6 +151,8 @@ func (b *Builder) resetBuffers() {
 	b.blockEndOffsets = b.blockEndOffsets[:0]
 	b.entryEndOffsets = b.entryEndOffsets[:0]
 	b.hashEntries = b.hashEntries[:0]
+	b.keys = nil
+	b.indexes = nil
 }
 
 // Close closes the TableBuilder.
@@ -176,9 +179,11 @@ func (b *Builder) addHelper(key []byte, v y.ValueStruct) {
 			keyNoTs = y.ParseKey(key)
 		}
 		if b.usingSuRF {
-			b.keys = append(b.keys, y.SafeCopy(nil, keyNoTs))
-			e := indexEntry{uint16(len(b.baseKeysEndOffs)), uint8(b.counter)}
-			b.indexes = append(b.indexes, e.Bytes())
+			if len(b.keys) == 0 || !bytes.Equal(b.keys[len(b.keys)-1], keyNoTs) {
+				b.keys = append(b.keys, y.SafeCopy(nil, keyNoTs))
+				e := indexEntry{uint16(len(b.baseKeysEndOffs)), uint8(b.counter)}
+				b.indexes = append(b.indexes, e.Bytes())
+			}
 		} else {
 			keyHash := farm.Fingerprint64(keyNoTs)
 			// It is impossible that a single table contains 16 million keys.
@@ -269,36 +274,6 @@ func (b *Builder) Finish() error {
 	b.buf = append(b.buf, u32SliceToBytes(b.baseKeysEndOffs)...)
 	b.buf = append(b.buf, u32ToBytes(uint32(len(b.baseKeysEndOffs)))...)
 
-	if b.usingSuRF {
-		idxName := b.w.Name() + ".idx"
-		fd, err := os.OpenFile(idxName, os.O_CREATE|os.O_TRUNC|os.O_RDWR, os.ModePerm)
-		if err != nil {
-			return err
-		}
-		builder := surf.NewBuilder(3, surf.MixedSuffix, 4, 4)
-		s := builder.Build(b.keys, b.indexes, 40)
-		if _, err := fd.Write(u32ToBytes(uint32(s.MarshalSize()))); err != nil {
-			return err
-		}
-		if err := s.WriteTo(fd); err != nil {
-			return err
-		}
-		smallest, biggest := b.keys[0], b.keys[len(b.keys)-1]
-		if _, err := fd.Write(u32ToBytes(uint32(len(smallest)))); err != nil {
-			return err
-		}
-		if _, err := fd.Write(smallest); err != nil {
-			return err
-		}
-		if _, err := fd.Write(u32ToBytes(uint32(len(biggest)))); err != nil {
-			return err
-		}
-		if _, err := fd.Write(biggest); err != nil {
-			return err
-		}
-		fd.Close()
-	}
-
 	// Write bloom filter.
 	bloomFilter := bbloom.New(float64(len(b.hashEntries)), b.bloomFpr)
 	for _, he := range b.hashEntries {
@@ -328,7 +303,44 @@ func (b *Builder) Finish() error {
 		return err
 	}
 
-	return b.w.Finish()
+	if err := b.w.Finish(); err != nil {
+		return err
+	}
+
+	if b.usingSuRF && len(b.keys) != 0 {
+		idxName := b.w.Name() + ".idx"
+		fd, err := os.OpenFile(idxName, os.O_CREATE|os.O_TRUNC|os.O_RDWR, os.ModePerm)
+		if err != nil {
+			return err
+		}
+		builder := surf.NewBuilder(3, surf.MixedSuffix, 4, 4)
+		s := builder.Build(b.keys, b.indexes, 40)
+		if _, err := fd.Write(u32ToBytes(uint32(s.MarshalSize()))); err != nil {
+			return err
+		}
+		if err := s.WriteTo(fd); err != nil {
+			return err
+		}
+		smallest, biggest := b.keys[0], b.keys[len(b.keys)-1]
+		if _, err := fd.Write(u32ToBytes(uint32(len(smallest)))); err != nil {
+			return err
+		}
+		if _, err := fd.Write(smallest); err != nil {
+			return err
+		}
+		if _, err := fd.Write(u32ToBytes(uint32(len(biggest)))); err != nil {
+			return err
+		}
+		if _, err := fd.Write(biggest); err != nil {
+			return err
+		}
+		if _, err := fd.Write(u32ToBytes(uint32(b.w.Offset()))); err != nil {
+			return err
+		}
+		fd.Close()
+	}
+
+	return nil
 }
 
 func u32ToBytes(v uint32) []byte {

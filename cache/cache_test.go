@@ -30,7 +30,7 @@ func TestCacheMgr(t *testing.T) {
 		assert.NoError(t, f.Close())
 		entry := &CacheEntryImpl{
 			id:       fileName,
-			pinned:   0,
+			pinCnt:   0,
 			inLocal:  true,
 			fileSize: 1,
 		}
@@ -50,7 +50,7 @@ func TestCacheMgr(t *testing.T) {
 		assert.NoError(t, f.Close())
 		entry := &CacheEntryImpl{
 			id:       fileName,
-			pinned:   0,
+			pinCnt:   0,
 			inLocal:  true,
 			fileSize: 1,
 		}
@@ -77,7 +77,7 @@ func TestCacheMgr(t *testing.T) {
 		assert.NoError(t, f.Close())
 		entry := &CacheEntryImpl{
 			id:       fileName,
-			pinned:   0,
+			pinCnt:   0,
 			inLocal:  true,
 			fileSize: 1,
 		}
@@ -108,7 +108,7 @@ func TestCacheMgr(t *testing.T) {
 		assert.NoError(t, f.Close())
 		entry := &CacheEntryImpl{
 			id:       fileName,
-			pinned:   0,
+			pinCnt:   0,
 			inLocal:  true,
 			fileSize: 1,
 		}
@@ -164,7 +164,7 @@ func TestCacheMgr(t *testing.T) {
 		assert.NoError(t, f.Close())
 		entry := &CacheEntryImpl{
 			id:       fileName,
-			pinned:   0,
+			pinCnt:   0,
 			inLocal:  true,
 			fileSize: 1,
 		}
@@ -188,7 +188,7 @@ func TestCacheMgr(t *testing.T) {
 		assert.NoError(t, f.Close())
 		entry := &CacheEntryImpl{
 			id:       fileName,
-			pinned:   0,
+			pinCnt:   0,
 			inLocal:  true,
 			fileSize: 1,
 		}

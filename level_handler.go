@@ -124,9 +124,16 @@ func assertTablesOrder(tables []*table.Table) {
 			tables[i].Biggest())
 
 		y.AssertTruef(y.CompareKeysWithVer(tables[i].Smallest(), tables[i+1].Smallest()) < 0,
-			"tables[i].Smallest() :%v, tables[i+1].Smallest():%v",
+			"%s -> %v, %v, %d\n %s -> %v, %v, %d",
+			tables[i].CacheID(),
 			tables[i].Smallest(),
-			tables[i+1].Smallest())
+			tables[i].Biggest(),
+			tables[i].Size(),
+			tables[i+1].CacheID(),
+			tables[i+1].Smallest(),
+			tables[i+1].Biggest(),
+			tables[i+1].Size(),
+		)
 
 		y.AssertTruef(y.CompareKeysWithVer(tables[i].Biggest(), tables[i+1].Biggest()) < 0,
 			"y.CompareKeysWithVer(tables[i].Biggest() %v, tables[i+1].Biggest() %v",
@@ -199,7 +206,7 @@ func decrRefs(tables []*table.Table) error {
 func forceDecrRefs(tables []*table.Table) {
 	err := decrRefs(tables)
 	if err != nil {
-		panic(err)
+		panic(err.Error())
 	}
 }
 

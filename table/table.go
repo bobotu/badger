@@ -90,6 +90,7 @@ func (t *Table) Deallocate() error {
 	t.baseKeys = nil
 	t.baseKeysEndOffs = nil
 	err = t.fd.Close()
+	t.fd = nil
 	return err
 }
 
@@ -115,14 +116,16 @@ func (t *Table) Init() error {
 
 // IncrRef increments the refcount (having to do with whether the file should be deleted)
 func (t *Table) IncrRef() {
+	if t.IsRemote() {
+		t.cacheManager.Pin(t.filename)
+	}
 	atomic.AddInt32(&t.ref, 1)
 }
 
 // DecrRef decrements the refcount and possibly deletes the table
 func (t *Table) DecrRef() error {
 	newRef := atomic.AddInt32(&t.ref, -1)
-	if newRef == 1 && t.IsRemote() {
-		log.Errorf("release %s", t.filename)
+	if t.IsRemote() {
 		t.cacheManager.Release(t.filename)
 	}
 	if newRef == 0 {
@@ -133,16 +136,10 @@ func (t *Table) DecrRef() error {
 		if t.loadingMode == options.MemoryMap {
 			y.Munmap(t.mmap)
 		}
-		if err := t.fd.Truncate(0); err != nil {
-			// This is very important to let the FS know that the file is deleted.
-			return err
-		}
-		filename := t.fd.Name()
-		if err := t.fd.Close(); err != nil {
-			return err
-		}
-		if err := os.Remove(filename); err != nil {
-			return err
+		if t.fd != nil {
+			t.fd.Truncate(0)
+			t.fd.Close()
+			os.Remove(t.filename)
 		}
 		if t.surf != nil {
 			y.Munmap(t.remoteIndex)
@@ -150,7 +147,7 @@ func (t *Table) DecrRef() error {
 		}
 
 		if t.IsRemote() {
-			t.cacheManager.Free(filename)
+			t.cacheManager.Free(t.filename)
 		}
 	}
 	return nil
@@ -210,8 +207,8 @@ func openRemoteFile(filename string, loadingMode options.FileLoadingMode) (*Tabl
 	biggestLen := int(bytesToU32(data[cursor : cursor+4]))
 	cursor += 4
 	biggest := data[cursor : cursor+biggestLen]
-
-	log.Warnf("load remote file idx %s size %d", indexFile, surfSize)
+	cursor += biggestLen
+	tableSize := int(bytesToU32(data[cursor : cursor+4]))
 
 	surf := new(surf.SuRF)
 	surf.Unmarshal(surfData)
@@ -222,6 +219,7 @@ func openRemoteFile(filename string, loadingMode options.FileLoadingMode) (*Tabl
 		loadingMode:   loadingMode,
 		smallest:      y.KeyWithTs(smallest, math.MaxUint64),
 		biggest:       y.KeyWithTs(biggest, 0),
+		tableSize:     tableSize,
 		surf:          surf,
 		remoteIndex:   data,
 		remoteIndexFd: indexFile,
@@ -305,13 +303,13 @@ func (t *Table) Close() error {
 // which means caller should fallback to seek search. Otherwise it value will be true.
 // If the hash index does not contain such an element the returned key will be nil.
 func (t *Table) PointGet(key []byte, keyHash uint64) ([]byte, y.ValueStruct, bool) {
-	log.Errorf("point get %s", t.CacheID())
 	if t.isRemote {
 		t.cacheManager.Pin(t.filename)
 	}
 	var blkIdx uint32
 	var offset uint8
 	if t.surf != nil {
+		return nil, y.ValueStruct{}, false
 		v, ok := t.surf.Get(y.ParseKey(key))
 		if !ok {
 			return nil, y.ValueStruct{}, true
@@ -481,10 +479,11 @@ func (t *Table) DoesNotHave(keyHash uint64) bool { return !t.bf.Has(keyHash) }
 func (t *Table) IsRemote() bool { return t.isRemote }
 
 func (t *Table) HaveRange(start, end []byte) bool {
-	if t.surf == nil {
-		return true
-	}
-	return t.surf.HasRange(start, end)
+	// if t.surf == nil {
+	// 	return true
+	// }
+	// return t.surf.HasRange(start, end)
+	return true
 }
 
 // ParseFileID reads the file id out of a filename.

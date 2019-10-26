@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
@@ -41,7 +42,7 @@ type CacheManager interface {
 type CacheEntryImpl struct {
 	userEntry CacheEntry
 	id        string
-	pinned    int
+	pinCnt    int32
 	inLocal   bool
 	fileSize  int
 }
@@ -74,29 +75,16 @@ func (entry *CacheEntryImpl) CacheID() string {
 }
 
 func (entry *CacheEntryImpl) Pinned() bool {
-	return entry.pinned > 0
+	return atomic.LoadInt32(&entry.pinCnt) > 0
 }
 
 func (entry *CacheEntryImpl) Pin() error {
-	entry.pinned++
+	atomic.AddInt32(&entry.pinCnt, 1)
 	return nil
 }
 
 func (entry *CacheEntryImpl) Unpin() error {
-	if entry.pinned > 0 {
-		entry.pinned--
-		return nil
-	}
-	return errors.Errorf("entry not pinned")
-}
-
-func (entry *CacheEntryImpl) Deallocate() error {
-	fmt.Println("cache entry deallocate")
-	return nil
-}
-
-func (entry *CacheEntryImpl) Init() error {
-	fmt.Println("cache entry init")
+	atomic.AddInt32(&entry.pinCnt, -1)
 	return nil
 }
 
@@ -348,7 +336,7 @@ func (mgr *CacheManagerImpl) Free(id string) error {
 
 func (mgr *CacheManagerImpl) Pin(id string) error {
 	id = filepath.Base(id)
-	log.Infof("pin file: %s", id)
+	// log.Infof("pin file: %s", id)
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 	value, ok := mgr.cache.Get(id)
@@ -377,7 +365,7 @@ func (mgr *CacheManagerImpl) Pin(id string) error {
 
 func (mgr *CacheManagerImpl) Release(id string) error {
 	id = filepath.Base(id)
-	log.Infof("release file %s", id)
+	// log.Infof("release file %s", id)
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 	value, ok := mgr.cache.Peek(id)

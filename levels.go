@@ -150,6 +150,27 @@ func newLevelsController(kv *DB, mf *Manifest, opt options.TableBuilderOptions) 
 		return nil, err
 	}
 
+	// go func() {
+	// 	t := time.NewTicker(30 * time.Second)
+	// 	for range t.C {
+	// 		for _, l := range s.levels {
+	// 			l.Lock()
+	// 			log.Errorf("tables for level: %d", l.level)
+	// 			for _, t := range l.tables {
+	// 				log.Errorf("table [%v, %v]", t.Smallest(), t.Biggest())
+	// 			}
+	// 			it := table.NewConcatIterator(l.tables, false)
+	// 			var cnt int
+	// 			for it.Rewind(); it.Valid(); it.Next() {
+	// 				cnt++
+	// 			}
+	// 			log.Errorf("kv count is %d", cnt)
+	// 			forceDecrRefs(l.tables)
+	// 			l.Unlock()
+	// 		}
+	// 	}
+	// }()
+
 	return s, nil
 }
 
@@ -380,6 +401,9 @@ func (lc *levelsController) compactBuildTables(level int, cd compactDef,
 		iters = []y.Iterator{topTables[0].NewIterator(false)}
 	}
 
+	sortTables(botTables)
+	assertTablesOrder(botTables)
+
 	// Next level has level>=1 and we can use ConcatIterator as key ranges do not overlap.
 	iters = append(iters, table.NewConcatIterator(botTables, false))
 	it := table.NewMergeIterator(iters, false)
@@ -509,7 +533,10 @@ func (lc *levelsController) compactBuildTables(level int, cd compactDef,
 		if err != nil {
 			return
 		}
-		lc.kv.cacheManger.Add(fileName, tbl, true, true)
+		if isRemote {
+			tbl.Init()
+			lc.kv.cacheManger.Add(fileName, tbl, true, true)
+		}
 
 		if len(tbl.Smallest()) == 0 {
 			tbl.DecrRef()
