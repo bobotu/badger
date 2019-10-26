@@ -77,6 +77,10 @@ func (bf *blobFile) CacheID() string {
 	return bf.fd.Name()
 }
 
+func (bf *blobFile) CacheSize() int {
+	return int(bf.fileSize)
+}
+
 func (bf *blobFile) Init() error {
 	file, err := os.OpenFile(bf.path, os.O_RDWR, 0666)
 	if err != nil {

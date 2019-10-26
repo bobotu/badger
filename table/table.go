@@ -74,6 +74,10 @@ func (t *Table) CacheID() string {
 	return t.fd.Name()
 }
 
+func (t *Table) CacheSize() int {
+	return t.tableSize
+}
+
 func (t *Table) Deallocate() error {
 	err := y.Munmap(t.mmap)
 	if err != nil {

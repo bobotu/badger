@@ -19,25 +19,15 @@ type CacheEntry interface {
 	Deallocate() error
 	// init entry
 	Init() error
-	// is file pinned
-	Pinned() bool
-	// pin file
-	Pin() error
-	// unpin file
-	Unpin() error
 	// file size
 	CacheSize() int
-	// file in local ssd
-	IsInLocal() bool
-	// SetInLocal
-	SetInLocal(inLocal bool)
 }
 
 type CacheManager interface {
 	// scan uploading files
 	Open() error
 	// Add file to cache
-	Add(id string, entry CacheEntry, upload bool) error
+	Add(id string, entry CacheEntry, upload bool, isInLocal bool) error
 	// File with ID is no longer needed, can be deleted from S3 and local.
 	Free(id string) error
 	// This file is needed, if not stay in local cache fetch from S3 and call `CacheEntry.Init`
@@ -124,7 +114,7 @@ type CacheManagerImpl struct {
 }
 
 func canEvict(key, value interface{}) bool {
-	entry := value.(CacheEntry)
+	entry := value.(*CacheEntryImpl)
 	if entry.IsInLocal() && !entry.Pinned() {
 		return true
 	}
@@ -167,7 +157,7 @@ func (mgr *CacheManagerImpl) getEntry(id string) (CacheEntry, error) {
 	if !ok {
 		return nil, errors.Errorf("%s not exist", id)
 	}
-	entry := value.(CacheEntry)
+	entry := value.(*CacheEntryImpl).userEntry
 	return entry, nil
 }
 
@@ -178,7 +168,7 @@ func (mgr *CacheManagerImpl) ensureFileSize(newSize int) error {
 		if !ok {
 			return errors.Errorf("cache full")
 		}
-		entry := value.(CacheEntry)
+		entry := value.(*CacheEntryImpl)
 		if !entry.IsInLocal() {
 			panic("unexpected error: %d can evict but not in local")
 		}
@@ -245,6 +235,13 @@ func (mgr *CacheManagerImpl) removeRemoteFile(id string) error {
 func (mgr *CacheManagerImpl) removeLocalFile(id string) (removed bool, err error) {
 	filePath := mgr.getFilePath(id)
 	log.Debugf("remove local file: %s", id)
+	e, err := mgr.getEntry(id)
+	if err != nil {
+		return false, err
+	}
+	if err := e.Deallocate(); err != nil {
+		return false, err
+	}
 	exist, err := fileExist(filePath)
 	if err != nil {
 		return false, err
@@ -252,6 +249,7 @@ func (mgr *CacheManagerImpl) removeLocalFile(id string) (removed bool, err error
 	if !exist {
 		return false, nil
 	}
+
 	err = os.Remove(filePath)
 	if err != nil {
 		return false, err
@@ -259,7 +257,7 @@ func (mgr *CacheManagerImpl) removeLocalFile(id string) (removed bool, err error
 	return true, nil
 }
 
-func (mgr *CacheManagerImpl) entryInLocal(entry CacheEntry) bool {
+func (mgr *CacheManagerImpl) entryInLocal(entry *CacheEntryImpl) bool {
 	filePath := mgr.getFilePath(entry.CacheID())
 	exist, _ := fileExist(filePath)
 	if entry.IsInLocal() && exist {
@@ -292,7 +290,7 @@ func (mgr *CacheManagerImpl) Open() error {
 	return nil
 }
 
-func (mgr *CacheManagerImpl) Add(id string, entry CacheEntry, upload bool) error {
+func (mgr *CacheManagerImpl) Add(id string, entry CacheEntry, upload bool, isInLocal bool) error {
 	if upload {
 		if err := mgr.uploadRemoteFile(id); err != nil {
 			return err
@@ -301,14 +299,15 @@ func (mgr *CacheManagerImpl) Add(id string, entry CacheEntry, upload bool) error
 	log.Debugf("add cache entry, id: %s, entry: %v, upload: %v", id, entry, upload)
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
-	if entry.IsInLocal() {
+	e := &CacheEntryImpl{userEntry: entry, inLocal: isInLocal}
+	if isInLocal {
 		err := mgr.ensureFileSize(entry.CacheSize())
 		if err != nil {
 			return err
 		}
 		mgr.localSize += entry.CacheSize()
 	}
-	mgr.cache.Add(id, entry)
+	mgr.cache.Add(id, e)
 	return nil
 }
 
@@ -320,7 +319,7 @@ func (mgr *CacheManagerImpl) Free(id string) error {
 	if !ok {
 		return errors.Errorf("%s not exist in cache list", id)
 	}
-	entry := value.(CacheEntry)
+	entry := value.(*CacheEntryImpl)
 	if entry.Pinned() {
 		return errors.Errorf("%s is pinned", id)
 	}
@@ -348,7 +347,7 @@ func (mgr *CacheManagerImpl) Pin(id string) error {
 	if !ok {
 		return errors.Errorf("%s not in cache list", id)
 	}
-	entry := value.(CacheEntry)
+	entry := value.(*CacheEntryImpl)
 	if entry.IsInLocal() {
 		return entry.Pin()
 	}
@@ -364,6 +363,7 @@ func (mgr *CacheManagerImpl) Pin(id string) error {
 		mgr.localSize += entry.CacheSize()
 		entry.SetInLocal(true)
 	}
+	entry.userEntry.Init()
 	return entry.Pin()
 }
 
@@ -375,7 +375,7 @@ func (mgr *CacheManagerImpl) Release(id string) error {
 	if !ok {
 		return errors.Errorf("%s not in cache list", id)
 	}
-	entry := value.(CacheEntry)
+	entry := value.(*CacheEntryImpl)
 	return entry.Unpin()
 }
 
