@@ -66,6 +66,7 @@ type File struct {
 	fd        *os.File
 	flag      int
 	writeable bool
+	isRemote  bool
 	id        string
 	data      []byte
 }
