@@ -74,7 +74,7 @@ type blobFile struct {
 }
 
 func (bf *blobFile) CacheID() string {
-	return bf.fd.Name()
+	return filepath.Base(bf.path)
 }
 
 func (bf *blobFile) CacheSize() int {
@@ -223,7 +223,7 @@ func (bfb *blobFileBuilder) append(value []byte) (bp []byte, err error) {
 	return
 }
 
-func (bfb *blobFileBuilder) finish() (*blobFile, error) {
+func (bfb *blobFileBuilder) finish(manager cache.CacheManager) (*blobFile, error) {
 	// Write 4 bytes footer
 	err := bfb.writer.Append(make([]byte, 4))
 	if err != nil {
@@ -234,17 +234,17 @@ func (bfb *blobFileBuilder) finish() (*blobFile, error) {
 		return nil, err
 	}
 	_ = bfb.file.Close()
-	return newBlobFile(bfb.file.Name(), bfb.fid, uint32(bfb.writer.Offset()), bfb.isRemote)
+	return newBlobFile(bfb.file.Name(), manager, bfb.fid, uint32(bfb.writer.Offset()), bfb.isRemote)
 }
 
-func newBlobFile(path string, fid, fileSize uint32, isRemote bool) (*blobFile, error) {
+func newBlobFile(path string, manager cache.CacheManager, fid, fileSize uint32, isRemote bool) (*blobFile, error) {
 	if isRemote {
-		return openRemoteBlobFile(path, fid, fileSize)
+		return openRemoteBlobFile(path, manager, fid, fileSize)
 	}
-	return openLocalBlobFile(path, fid, fileSize)
+	return openLocalBlobFile(path, manager, fid, fileSize)
 }
 
-func openLocalBlobFile(path string, fid, fileSize uint32) (*blobFile, error) {
+func openLocalBlobFile(path string, manager cache.CacheManager, fid, fileSize uint32) (*blobFile, error) {
 	file, err := os.OpenFile(path, os.O_RDWR, 0666)
 	if err != nil {
 		return nil, err
@@ -258,15 +258,17 @@ func openLocalBlobFile(path string, fid, fileSize uint32) (*blobFile, error) {
 		fid:      fid,
 		fd:       file,
 		fileSize: fileSize,
+		manager:  manager,
 		ref:      1,
 	}, nil
 }
 
-func openRemoteBlobFile(path string, fid, fileSize uint32) (*blobFile, error) {
+func openRemoteBlobFile(path string, manager cache.CacheManager, fid, fileSize uint32) (*blobFile, error) {
 	return &blobFile{
 		path:     path,
 		fid:      fid,
 		fileSize: fileSize,
+		manager:  manager,
 		ref:      1,
 	}, nil
 }
@@ -288,7 +290,7 @@ type blobManager struct {
 
 func (bm *blobManager) Open(kv *DB, opt Options) error {
 	bm.physicalFiles = map[uint32]*blobFile{}
-	bm.dirPath = opt.ValueDir
+	bm.dirPath = opt.RemoteDir
 	bm.kv = kv
 	validFids, err := bm.loadChangeLogs()
 	if err != nil {
@@ -317,7 +319,7 @@ func (bm *blobManager) Open(kv *DB, opt Options) error {
 			return errors.Errorf("Found the same blob file twice: %d", fid)
 		}
 		isRemote := true
-		blobFile, err := newBlobFile(path, fid, uint32(fileInfo.Size()), isRemote)
+		blobFile, err := newBlobFile(path, kv.cacheManger, fid, uint32(fileInfo.Size()), isRemote)
 		if err != nil {
 			return err
 		}
@@ -346,6 +348,7 @@ func (bm *blobManager) Open(kv *DB, opt Options) error {
 		gcCandidate:       map[*blobFile]struct{}{},
 		physicalCache:     make(map[uint32]*blobFile, len(bm.physicalFiles)),
 		logicalToPhysical: map[uint32]uint32{},
+		manager:           kv.cacheManger,
 	}
 	for k, v := range bm.logicalToPhysical {
 		gcHandler.logicalToPhysical[k] = v
@@ -401,6 +404,7 @@ func (bm *blobManager) addFile(file *blobFile) error {
 	if err != nil {
 		return err
 	}
+	bm.kv.cacheManger.Add(file.path, file, true, true)
 	err = bm.changeLog.Sync()
 	if err != nil {
 		return err
@@ -519,6 +523,7 @@ type blobGCHandler struct {
 	discardCh         <-chan *DiscardStats
 	physicalCache     map[uint32]*blobFile
 	logicalToPhysical map[uint32]uint32
+	manager           cache.CacheManager
 
 	gcCandidate          map[*blobFile]struct{}
 	candidateValidSize   uint32
@@ -689,7 +694,7 @@ func (h *blobGCHandler) doGCIfNeeded() error {
 		return err
 	}
 	file.Close()
-	blobFile, err := newBlobFile(file.Name(), newFid, uint32(writer.Offset()), true)
+	blobFile, err := newBlobFile(file.Name(), h.manager, newFid, uint32(writer.Offset()), true)
 	if err != nil {
 		return err
 	}

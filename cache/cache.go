@@ -2,14 +2,16 @@ package cache
 
 import (
 	"fmt"
-	"github.com/coocood/badger/y"
-	"github.com/ngaut/log"
-	"github.com/pingcap/errors"
 	"io/ioutil"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/coocood/badger/y"
+	"github.com/ngaut/log"
+	"github.com/pingcap/errors"
 )
 
 type CacheEntry interface {
@@ -68,7 +70,7 @@ func (entry *CacheEntryImpl) SetInLocal(inLocal bool) {
 }
 
 func (entry *CacheEntryImpl) CacheID() string {
-	return entry.id
+	return entry.userEntry.CacheID()
 }
 
 func (entry *CacheEntryImpl) Pinned() bool {
@@ -162,7 +164,7 @@ func (mgr *CacheManagerImpl) getEntry(id string) (CacheEntry, error) {
 }
 
 func (mgr *CacheManagerImpl) ensureFileSize(newSize int) error {
-	log.Debugf("ensure file size, current %d, new %d, max %d", mgr.localSize, newSize, mgr.maxSize)
+	log.Infof("ensure file size, current %d, new %d, max %d", mgr.localSize, newSize, mgr.maxSize)
 	for mgr.localSize+newSize > mgr.maxSize {
 		_, value, ok := mgr.cache.GetOldestCanEvict()
 		if !ok {
@@ -171,6 +173,9 @@ func (mgr *CacheManagerImpl) ensureFileSize(newSize int) error {
 		entry := value.(*CacheEntryImpl)
 		if !entry.IsInLocal() {
 			panic("unexpected error: %d can evict but not in local")
+		}
+		if entry.CacheID() == "." {
+			panic(fmt.Sprintf("%+v", entry.userEntry))
 		}
 		removed, err := mgr.removeLocalFile(entry.CacheID())
 		if err != nil {
@@ -188,7 +193,7 @@ func (mgr *CacheManagerImpl) uploadRemoteFile(id string) error {
 	uploadingFilePath := mgr.getUploadingFilePath(id)
 	fileName := mgr.getFileName(id)
 	filePath := mgr.getFilePath(id)
-	log.Debugf("uploading file: %s", fileName)
+	log.Infof("uploading file: %s %s %s", fileName, filePath, uploadingFilePath)
 	exist, err := fileExist(uploadingFilePath)
 	if err != nil {
 		return err
@@ -219,7 +224,7 @@ func (mgr *CacheManagerImpl) downloadRemoteFile(id string) (bool, error) {
 	if exist {
 		os.Remove(filePath)
 	}
-	log.Debugf("download remote file: %s", id)
+	log.Infof("download remote file: %s", id)
 	if err = mgr.minioclient.GetObject(fileName, filePath); err != nil {
 		return false, err
 	}
@@ -228,13 +233,13 @@ func (mgr *CacheManagerImpl) downloadRemoteFile(id string) (bool, error) {
 
 func (mgr *CacheManagerImpl) removeRemoteFile(id string) error {
 	fileName := mgr.getFilePath(id)
-	log.Debugf("remove remote file: %s", id)
+	log.Infof("remove remote file: %s", id)
 	return mgr.minioclient.RMObject(fileName)
 }
 
 func (mgr *CacheManagerImpl) removeLocalFile(id string) (removed bool, err error) {
 	filePath := mgr.getFilePath(id)
-	log.Debugf("remove local file: %s", id)
+	log.Infof("remove local file: %s", id)
 	e, err := mgr.getEntry(id)
 	if err != nil {
 		return false, err
@@ -281,7 +286,7 @@ func (mgr *CacheManagerImpl) Open() error {
 		}
 		fsz := len(fileInfo.Name())
 		origFileId := fileInfo.Name()[:fsz-10]
-		log.Debugf("recover uploading: %s", origFileId)
+		log.Infof("recover uploading: %s", origFileId)
 		err := mgr.uploadRemoteFile(origFileId)
 		if err != nil {
 			return err
@@ -291,12 +296,13 @@ func (mgr *CacheManagerImpl) Open() error {
 }
 
 func (mgr *CacheManagerImpl) Add(id string, entry CacheEntry, upload bool, isInLocal bool) error {
+	id = filepath.Base(id)
+	log.Infof("add cache entry, id: %s, upload: %v", id, upload)
 	if upload {
 		if err := mgr.uploadRemoteFile(id); err != nil {
 			return err
 		}
 	}
-	log.Debugf("add cache entry, id: %s, entry: %v, upload: %v", id, entry, upload)
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 	e := &CacheEntryImpl{userEntry: entry, inLocal: isInLocal}
@@ -312,7 +318,8 @@ func (mgr *CacheManagerImpl) Add(id string, entry CacheEntry, upload bool, isInL
 }
 
 func (mgr *CacheManagerImpl) Free(id string) error {
-	log.Debugf("free file: %s", id)
+	id = filepath.Base(id)
+	log.Infof("free file: %s", id)
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 	value, ok := mgr.cache.Peek(id)
@@ -340,7 +347,8 @@ func (mgr *CacheManagerImpl) Free(id string) error {
 }
 
 func (mgr *CacheManagerImpl) Pin(id string) error {
-	log.Debugf("pin file: %s", id)
+	id = filepath.Base(id)
+	log.Infof("pin file: %s", id)
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 	value, ok := mgr.cache.Get(id)
@@ -368,7 +376,8 @@ func (mgr *CacheManagerImpl) Pin(id string) error {
 }
 
 func (mgr *CacheManagerImpl) Release(id string) error {
-	log.Debugf("release file %s", id)
+	id = filepath.Base(id)
+	log.Infof("release file %s", id)
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 	value, ok := mgr.cache.Peek(id)

@@ -19,7 +19,6 @@ package table
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/coocood/badger/cache"
 	"math"
 	"os"
 	"path"
@@ -28,6 +27,9 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"github.com/coocood/badger/cache"
+	"github.com/ngaut/log"
 
 	"github.com/coocood/badger/fileutil"
 	"github.com/coocood/badger/options"
@@ -68,10 +70,11 @@ type Table struct {
 	remoteIndex   []byte
 	remoteIndexFd *os.File
 	surf          *surf.SuRF
+	isRemote      bool
 }
 
 func (t *Table) CacheID() string {
-	return t.fd.Name()
+	return filepath.Base(t.filename)
 }
 
 func (t *Table) CacheSize() int {
@@ -119,6 +122,7 @@ func (t *Table) IncrRef() {
 func (t *Table) DecrRef() error {
 	newRef := atomic.AddInt32(&t.ref, -1)
 	if newRef == 1 && t.IsRemote() {
+		log.Errorf("release %s", t.filename)
 		t.cacheManager.Release(t.filename)
 	}
 	if newRef == 0 {
@@ -145,7 +149,7 @@ func (t *Table) DecrRef() error {
 			t.remoteIndexFd.Close()
 		}
 
-		if t.isRemote() {
+		if t.IsRemote() {
 			t.cacheManager.Free(filename)
 		}
 	}
@@ -169,7 +173,7 @@ func OpenTable(filename string, isRemote bool, loadingMode options.FileLoadingMo
 	} else {
 		t, err = openLocalFile(filename, loadingMode)
 	}
-	if err != nil {
+	if err == nil {
 		t.cacheManager = manager
 	}
 	return t, err
@@ -207,6 +211,8 @@ func openRemoteFile(filename string, loadingMode options.FileLoadingMode) (*Tabl
 	cursor += 4
 	biggest := data[cursor : cursor+biggestLen]
 
+	log.Warnf("load remote file idx %s size %d", indexFile, surfSize)
+
 	surf := new(surf.SuRF)
 	surf.Unmarshal(surfData)
 	return &Table{
@@ -219,6 +225,7 @@ func openRemoteFile(filename string, loadingMode options.FileLoadingMode) (*Tabl
 		surf:          surf,
 		remoteIndex:   data,
 		remoteIndexFd: indexFile,
+		isRemote:      true,
 	}, nil
 }
 
@@ -241,6 +248,7 @@ func openLocalFile(filename string, loadingMode options.FileLoadingMode) (*Table
 		return nil, errors.Errorf("Invalid filename: %s", filename)
 	}
 	t := &Table{
+		filename:    filename,
 		fd:          fd,
 		ref:         1, // Caller is given one reference.
 		id:          id,
@@ -297,6 +305,10 @@ func (t *Table) Close() error {
 // which means caller should fallback to seek search. Otherwise it value will be true.
 // If the hash index does not contain such an element the returned key will be nil.
 func (t *Table) PointGet(key []byte, keyHash uint64) ([]byte, y.ValueStruct, bool) {
+	log.Errorf("point get %s", t.CacheID())
+	if t.isRemote {
+		t.cacheManager.Pin(t.filename)
+	}
 	var blkIdx uint32
 	var offset uint8
 	if t.surf != nil {
@@ -308,8 +320,6 @@ func (t *Table) PointGet(key []byte, keyHash uint64) ([]byte, y.ValueStruct, boo
 		indexEntry.FromBytes(v)
 		blkIdx = uint32(indexEntry.blockIdx)
 		offset = indexEntry.offset
-		// TODO: Pin
-		t.cacheManager.Pin(t.filename)
 	} else {
 		blkIdx, offset = t.hIdx.lookup(keyHash)
 		if blkIdx == resultFallback {
@@ -468,7 +478,7 @@ func (t *Table) ID() uint64 { return t.id }
 // bloom filter lookup.
 func (t *Table) DoesNotHave(keyHash uint64) bool { return !t.bf.Has(keyHash) }
 
-func (t *Table) IsRemote() bool { return t.surf != nil }
+func (t *Table) IsRemote() bool { return t.isRemote }
 
 func (t *Table) HaveRange(start, end []byte) bool {
 	if t.surf == nil {

@@ -168,7 +168,7 @@ func replayFunction(out *DB) func(Entry) error {
 func Open(opt Options) (db *DB, err error) {
 	opt.maxBatchSize = (15 * opt.MaxTableSize) / 100
 	opt.maxBatchCount = opt.maxBatchSize / int64(skl.MaxNodeSize)
-	opt.RemoteDir = filepath.Join(opt.Dir, "remote")
+	opt.RemoteDir = opt.Dir
 
 	if opt.ValueThreshold > math.MaxUint16-16 {
 		return nil, ErrValueThreshold
@@ -824,7 +824,7 @@ func (db *DB) runFlushMemTable(c *y.Closer) error {
 			return err
 		}
 		if db.opt.ValueThreshold > 0 {
-			bf, err1 := bb.finish()
+			bf, err1 := bb.finish(db.cacheManger)
 			if err1 != nil {
 				return err1
 			}

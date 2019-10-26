@@ -22,11 +22,11 @@ type IMinioClient interface {
 }
 
 func InitMinioClient() IMinioClient {
-	endpoint := "0.0.0.0:9000"
+	endpoint := "10.9.155.130:9000"
 	accessKeyID := "AKIAIOSFODNN7EXAMPLE"
 	secretAccessKey := "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
 	useSSL := false
-	bucketName := "mymusic"
+	bucketName := "uni1"
 	location := "us-east-1"
 
 	newMinioClient, err := minio.New(endpoint, accessKeyID, secretAccessKey, useSSL)

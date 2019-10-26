@@ -32,5 +32,6 @@ require (
 	golang.org/x/net v0.0.0-20191021144547-ec77196f6094 // indirect
 	golang.org/x/sys v0.0.0-20190412213103-97732733099d
 	golang.org/x/time v0.0.0-20181108054448-85acf8d2951c
+	golang.org/x/tools/gopls v0.1.7 // indirect
 	gopkg.in/ini.v1 v1.49.0 // indirect
 )

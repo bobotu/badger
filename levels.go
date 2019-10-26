@@ -109,9 +109,6 @@ func newLevelsController(kv *DB, mf *Manifest, opt options.TableBuilderOptions) 
 	for fileID, tableManifest := range mf.Tables {
 		level := tableManifest.Level
 		dir := kv.opt.Dir
-		if int(level) >= kv.opt.RemoteLevelStart {
-			dir = kv.opt.RemoteDir
-		}
 		fname := table.NewFilename(fileID, dir)
 		var flags uint32 = y.Sync
 		if kv.opt.ReadOnly {
@@ -412,9 +409,6 @@ func (lc *levelsController) compactBuildTables(level int, cd compactDef,
 		timeStart := time.Now()
 		fileID := lc.reserveFileID()
 		dir := lc.kv.opt.Dir
-		if isRemote {
-			dir = lc.kv.opt.RemoteDir
-		}
 		fileName := table.NewFilename(fileID, dir)
 		var fd *os.File
 		fd, err = directio.OpenFile(fileName, os.O_CREATE|os.O_RDWR, 0666)
@@ -423,7 +417,7 @@ func (lc *levelsController) compactBuildTables(level int, cd compactDef,
 		}
 
 		if builder == nil {
-			builder = table.NewTableBuilder(fd, limiter, cd.nextLevel.level, cd.nextLevel.level >= lc.kv.opt.RemoteLevelStart, lc.opt)
+			builder = table.NewTableBuilder(fd, limiter, cd.nextLevel.level, isRemote, lc.opt)
 		} else {
 			builder.Reset(fd)
 		}
@@ -511,11 +505,11 @@ func (lc *levelsController) compactBuildTables(level int, cd compactDef,
 		}
 		fd.Close()
 		var tbl *table.Table
-		// TODO: may have problem with cache manager.
 		tbl, err = table.OpenTable(fileName, isRemote, lc.kv.opt.TableLoadingMode, lc.kv.cacheManger)
 		if err != nil {
 			return
 		}
+		lc.kv.cacheManger.Add(fileName, tbl, true, true)
 
 		if len(tbl.Smallest()) == 0 {
 			tbl.DecrRef()

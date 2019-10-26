@@ -153,13 +153,13 @@ const (
 // Feel free to modify these to suit your needs.
 var DefaultOptions = Options{
 	DoNotCompact:        false,
-	LevelOneSize:        256 << 20,
+	LevelOneSize:        128 << 20,
 	TableLoadingMode:    options.LoadToRAM,
 	ValueLogLoadingMode: options.FileIO,
 	// table.MemoryMap to mmap() the tables.
 	// table.Nothing to not preload the tables.
-	RemoteLevelStart: 		 3,
-	MaxSize: 				 1 << 30,
+	RemoteLevelStart:        2,
+	MaxSize:                 200 << 20,
 	MaxTableSize:            64 << 20,
 	NumCompactors:           3,
 	MaxSubCompaction:        3,
