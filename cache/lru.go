@@ -136,7 +136,7 @@ func (c *LRU) GetOldestCanEvict() (key interface{}, value interface{}, ok bool) 
 		if c.canEvict(kv.key, kv.value) {
 			return kv.key, kv.value, true
 		}
-		ent = ent.Next()
+		ent = ent.Prev()
 	}
 	return nil, nil, false
 }
@@ -182,7 +182,7 @@ func (c *LRU) removeOldestCanEvict() (ok bool) {
 			c.removeElement(ent)
 			return true
 		}
-		ent = ent.Next()
+		ent = ent.Prev()
 	}
 	return false
 }

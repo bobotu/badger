@@ -44,7 +44,7 @@ func InitMinioClient() IMinioClient {
 }
 
 func loggingStatus(service *MinioClient, function string, err error) {
-	log.Println("MINIO CLIENT: error: ", err, ", doing:", function, ", Status:" , service)
+	log.Println("MINIO CLIENT: error: ", err, ", doing:", function, ", Status:", service)
 }
 
 func (service *MinioClient) GetObject(objectName, filePath string) error {
