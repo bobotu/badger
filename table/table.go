@@ -41,7 +41,7 @@ const fileSuffix = ".sst"
 type Table struct {
 	sync.Mutex
 
-	fd        *os.File // Own fd.
+	fd        *File // Own fd.
 	tableSize int      // Initialized in OpenTable, using fd.Stat().
 
 	globalTs        uint64
@@ -60,6 +60,40 @@ type Table struct {
 
 	bf   bbloom.Bloom
 	hIdx hashIndex
+}
+
+type File struct {
+	fd        *os.File
+	flag      int
+	writeable bool
+	id        string
+	data      []byte
+}
+
+func (f *File) Deallocate() error {
+	err := y.Munmap(f.data)
+	if err != nil {
+		return err
+	}
+	err = f.fd.Close()
+	return err
+}
+
+func (f *File) Init() error {
+	var err error
+	f.fd, err = os.OpenFile(f.id, f.flag, 0666)
+	if err != nil {
+		return err
+	}
+	fileInfo, err := f.fd.Stat()
+	if err != nil {
+		return err
+	}
+	f.data, err = y.Mmap(f.fd, f.writeable, fileInfo.Size())
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // IncrRef increments the refcount (having to do with whether the file should be deleted)
@@ -102,7 +136,7 @@ type block struct {
 // entry.  Returns a table with one reference count on it (decrementing which may delete the file!
 // -- consider t.Close() instead).  The fd has to writeable because we call Truncate on it before
 // deleting.
-func OpenTable(fd *os.File, loadingMode options.FileLoadingMode) (*Table, error) {
+func OpenTable(file *File, loadingMode options.FileLoadingMode) (*Table, error) {
 	fileInfo, err := fd.Stat()
 	if err != nil {
 		// It's OK to ignore fd.Close() errs in this function because we have only read
@@ -298,6 +332,7 @@ func (t *Table) HasGlobalTs() bool {
 
 // SetGlobalTs update the global ts of external ingested tables.
 func (t *Table) SetGlobalTs(ts uint64) error {
+	// unused!!!
 	var buf [8]byte
 	encodeTs := math.MaxUint64 - ts
 	binary.BigEndian.PutUint64(buf[:], encodeTs)
