@@ -119,6 +119,10 @@ func (b *Builder) initNodes(keys, vals [][]byte, prefixDepth, depth, level int) 
 		groupStart, groupEnd = 1, 1
 	}
 
+	if groupStart >= len(keys) {
+		return
+	}
+
 	for {
 		groupEnd++
 		startKey := keys[groupStart]

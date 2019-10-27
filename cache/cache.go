@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/coocood/badger/y"
 	"github.com/ngaut/log"
@@ -63,7 +64,7 @@ func (entry *CacheEntryImpl) IsInLocal() bool {
 }
 
 func (entry *CacheEntryImpl) CacheSize() int {
-	return entry.fileSize
+	return entry.userEntry.CacheSize()
 }
 
 func (entry *CacheEntryImpl) SetInLocal(inLocal bool) {
@@ -123,6 +124,20 @@ func NewCacheManager(fileDir string, maxSize int) CacheManager {
 		minioclient: client,
 		cache:       cache,
 	}
+	go func() {
+		t := time.NewTicker(30 * time.Second)
+		for range t.C {
+			mgr.mu.Lock()
+			var size int
+			for el := mgr.cache.evictList.Front(); el != nil; el = el.Next() {
+				e := el.Value.(*entry).value.(*CacheEntryImpl)
+				size += e.CacheSize()
+				log.Warnf("id %s, size: %d, cnt: %d", e.CacheID(), e.CacheSize(), e.pinCnt)
+			}
+			log.Warnf("total size: %d", size)
+			mgr.mu.Unlock()
+		}
+	}()
 	return mgr
 }
 
@@ -151,12 +166,13 @@ func (mgr *CacheManagerImpl) getEntry(id string) (CacheEntry, error) {
 	return entry, nil
 }
 
-func (mgr *CacheManagerImpl) ensureFileSize(newSize int) error {
+func (mgr *CacheManagerImpl) ensureFileSize(newSize int) {
 	log.Infof("ensure file size, current %d, new %d, max %d", mgr.localSize, newSize, mgr.maxSize)
 	for mgr.localSize+newSize > mgr.maxSize {
 		_, value, ok := mgr.cache.GetOldestCanEvict()
 		if !ok {
-			return errors.Errorf("cache full")
+			log.Warn("cache full")
+			return
 		}
 		entry := value.(*CacheEntryImpl)
 		if !entry.IsInLocal() {
@@ -167,14 +183,14 @@ func (mgr *CacheManagerImpl) ensureFileSize(newSize int) error {
 		}
 		removed, err := mgr.removeLocalFile(entry.CacheID())
 		if err != nil {
-			return err
+			log.Warn(err)
+			return
 		}
 		if removed {
 			mgr.localSize -= entry.CacheSize()
-			entry.SetInLocal(false)
 		}
+		entry.SetInLocal(false)
 	}
-	return nil
 }
 
 func (mgr *CacheManagerImpl) uploadRemoteFile(id string) error {
@@ -199,6 +215,7 @@ func (mgr *CacheManagerImpl) uploadRemoteFile(id string) error {
 	if err := mgr.minioclient.PutObject(fileName, filePath); err != nil {
 		return err
 	}
+	os.Remove(uploadingFilePath)
 	return nil
 }
 
@@ -232,15 +249,15 @@ func (mgr *CacheManagerImpl) removeLocalFile(id string) (removed bool, err error
 	if err != nil {
 		return false, err
 	}
-	if err := e.Deallocate(); err != nil {
-		return false, err
-	}
 	exist, err := fileExist(filePath)
 	if err != nil {
 		return false, err
 	}
 	if !exist {
 		return false, nil
+	}
+	if err := e.Deallocate(); err != nil {
+		return false, err
 	}
 
 	err = os.Remove(filePath)
@@ -285,20 +302,23 @@ func (mgr *CacheManagerImpl) Open() error {
 
 func (mgr *CacheManagerImpl) Add(id string, entry CacheEntry, upload bool, isInLocal bool) error {
 	id = filepath.Base(id)
-	log.Infof("add cache entry, id: %s, upload: %v", id, upload)
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+	if mgr.cache.Contains(id) {
+		log.Infof("%s duplicate", id)
+		return nil
+	}
+
+	log.Warnf("add cache entry, id: %s, upload: %v, size: %d", id, upload, entry.CacheSize())
 	if upload {
 		if err := mgr.uploadRemoteFile(id); err != nil {
 			return err
 		}
 	}
-	mgr.mu.Lock()
-	defer mgr.mu.Unlock()
 	e := &CacheEntryImpl{userEntry: entry, inLocal: isInLocal}
 	if isInLocal {
-		err := mgr.ensureFileSize(entry.CacheSize())
-		if err != nil {
-			return err
-		}
+		log.Errorf("add %s ensure size: %d", entry.CacheID(), entry.CacheSize())
+		mgr.ensureFileSize(entry.CacheSize())
 		mgr.localSize += entry.CacheSize()
 	}
 	mgr.cache.Add(id, e)
@@ -347,10 +367,8 @@ func (mgr *CacheManagerImpl) Pin(id string) error {
 	if entry.IsInLocal() {
 		return entry.Pin()
 	}
-	err := mgr.ensureFileSize(entry.CacheSize())
-	if err != nil {
-		return err
-	}
+	log.Errorf("add %s ensure size: %d", entry.CacheID(), entry.CacheSize())
+	mgr.ensureFileSize(entry.CacheSize())
 	download, err := mgr.downloadRemoteFile(id)
 	if err != nil {
 		return err

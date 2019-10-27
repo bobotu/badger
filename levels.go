@@ -116,14 +116,14 @@ func newLevelsController(kv *DB, mf *Manifest, opt options.TableBuilderOptions) 
 		}
 
 		isRemote := int(level) >= kv.opt.RemoteLevelStart
-		t, err := table.OpenTable(fname, isRemote, kv.opt.TableLoadingMode, kv.cacheManger)
+		t, err := table.OpenTable(fname, isRemote, kv.opt.TableLoadingMode, kv.cacheManager)
 		if err != nil {
 			closeAllTables(tables)
 			return nil, errors.Wrapf(err, "Opening table: %q", fname)
 		}
 		if isRemote {
 			ex, _ := fileExist(fname)
-			kv.cacheManger.Add(fname, t, true, ex)
+			kv.cacheManager.Add(fname, t, true, ex)
 		}
 
 		tables[level] = append(tables[level], t)
@@ -156,15 +156,12 @@ func newLevelsController(kv *DB, mf *Manifest, opt options.TableBuilderOptions) 
 	// 		for _, l := range s.levels {
 	// 			l.Lock()
 	// 			log.Errorf("tables for level: %d", l.level)
+	// 			var size int
 	// 			for _, t := range l.tables {
+	// 				size += t.CacheSize()
 	// 				log.Errorf("table [%v, %v]", t.Smallest(), t.Biggest())
 	// 			}
-	// 			it := table.NewConcatIterator(l.tables, false)
-	// 			var cnt int
-	// 			for it.Rewind(); it.Valid(); it.Next() {
-	// 				cnt++
-	// 			}
-	// 			log.Errorf("kv count is %d", cnt)
+	// 			log.Errorf("sst size is %d", size)
 	// 			forceDecrRefs(l.tables)
 	// 			l.Unlock()
 	// 		}
@@ -529,13 +526,12 @@ func (lc *levelsController) compactBuildTables(level int, cd compactDef,
 		}
 		fd.Close()
 		var tbl *table.Table
-		tbl, err = table.OpenTable(fileName, isRemote, lc.kv.opt.TableLoadingMode, lc.kv.cacheManger)
+		tbl, err = table.OpenTable(fileName, isRemote, lc.kv.opt.TableLoadingMode, lc.kv.cacheManager)
 		if err != nil {
 			return
 		}
 		if isRemote {
 			tbl.Init()
-			lc.kv.cacheManger.Add(fileName, tbl, true, true)
 		}
 
 		if len(tbl.Smallest()) == 0 {
@@ -908,6 +904,12 @@ func (lc *levelsController) runCompactDef(l int, cd compactDef, limiter *rate.Li
 	}
 	if err := thisLevel.deleteTables(cd.top); err != nil {
 		return err
+	}
+
+	for _, t := range newTables {
+		if t.IsRemote() {
+			lc.kv.cacheManager.Add(t.CacheID(), t, true, true)
+		}
 	}
 
 	// Note: For level 0, while doCompact is running, it is possible that new tables are added.

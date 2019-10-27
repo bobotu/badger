@@ -428,6 +428,9 @@ func (txn *Txn) Discard() {
 		panic("Unclosed iterator at time of Txn.Discard.")
 	}
 	for t := range txn.refs {
+		if t.IsRemote() {
+			txn.db.cacheManager.Release(t.CacheID())
+		}
 		if err := t.DecrRef(); err != nil {
 			panic(err)
 		}

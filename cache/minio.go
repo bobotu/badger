@@ -26,7 +26,7 @@ func InitMinioClient() IMinioClient {
 	accessKeyID := "AKIAIOSFODNN7EXAMPLE"
 	secretAccessKey := "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
 	useSSL := false
-	bucketName := "uni1"
+	bucketName := "uni2"
 	location := "us-east-1"
 
 	newMinioClient, err := minio.New(endpoint, accessKeyID, secretAccessKey, useSSL)

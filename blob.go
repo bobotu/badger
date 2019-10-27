@@ -159,14 +159,14 @@ func (bf *blobFile) getPhysicalOffset(addr logicalAddr) uint32 {
 }
 
 func (bf *blobFile) incrRef() {
+	bf.manager.Pin(bf.path)
 	atomic.AddInt32(&bf.ref, 1)
 }
 
 func (bf *blobFile) decrRef() {
 	new := atomic.AddInt32(&bf.ref, -1)
-	if new == 1 {
-		bf.manager.Release(bf.path)
-	} else if new == 0 {
+	bf.manager.Release(bf.path)
+	if new == 0 {
 		if bf.mmap != nil {
 			y.Munmap(bf.mmap)
 		}
@@ -319,7 +319,7 @@ func (bm *blobManager) Open(kv *DB, opt Options) error {
 			return errors.Errorf("Found the same blob file twice: %d", fid)
 		}
 		isRemote := true
-		blobFile, err := newBlobFile(path, kv.cacheManger, fid, uint32(fileInfo.Size()), isRemote)
+		blobFile, err := newBlobFile(path, kv.cacheManager, fid, uint32(fileInfo.Size()), isRemote)
 		if err != nil {
 			return err
 		}
@@ -348,7 +348,7 @@ func (bm *blobManager) Open(kv *DB, opt Options) error {
 		gcCandidate:       map[*blobFile]struct{}{},
 		physicalCache:     make(map[uint32]*blobFile, len(bm.physicalFiles)),
 		logicalToPhysical: map[uint32]uint32{},
-		manager:           kv.cacheManger,
+		manager:           kv.cacheManager,
 	}
 	for k, v := range bm.logicalToPhysical {
 		gcHandler.logicalToPhysical[k] = v
@@ -404,7 +404,7 @@ func (bm *blobManager) addFile(file *blobFile) error {
 	if err != nil {
 		return err
 	}
-	bm.kv.cacheManger.Add(file.path, file, true, true)
+	bm.kv.cacheManager.Add(file.path, file, true, true)
 	err = bm.changeLog.Sync()
 	if err != nil {
 		return err
@@ -579,7 +579,6 @@ func (h *blobGCHandler) getLogicalToPhysical(logicalFid uint32) uint32 {
 
 func (h *blobGCHandler) writeDiscardToFile(physicalFid uint32, ptrs []blobPointer) error {
 	file := h.getPhysicalFile(physicalFid)
-	h.manager.Pin(file.path)
 	discardInfo := make([]byte, uint32(len(ptrs)*8+8))
 	totalDiscard := file.totalDiscard + uint32(len(discardInfo))
 	for i, ptr := range ptrs {
@@ -629,7 +628,6 @@ func (h *blobGCHandler) doGCIfNeeded() error {
 	}
 	var validEntries []validEntry
 	for _, blobFile := range oldFiles {
-		blobFile.manager.Pin(blobFile.path)
 		blobBytes, err := ioutil.ReadFile(blobFile.path)
 		if err != nil {
 			return err
@@ -792,7 +790,6 @@ type blobCache struct {
 const cacheSize = 64 * 1024
 
 func (bc *blobCache) read(bp blobPointer, slice *y.Slice) ([]byte, error) {
-	bc.file.manager.Pin(bc.file.path)
 	physicalOffset := bc.file.getPhysicalOffset(bp.logicalAddr)
 	lastPhysical := bc.lastPhysical
 	bc.lastPhysical = physicalOffset

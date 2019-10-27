@@ -21,6 +21,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/coocood/badger/cache"
 	"github.com/coocood/badger/table"
 	"github.com/coocood/badger/y"
 	"github.com/pingcap/errors"
@@ -46,13 +47,16 @@ type levelHandler struct {
 
 type RefMap = map[*table.Table]struct{}
 
-func addTableToRefMap(refs RefMap, t *table.Table) {
+func addTableToRefMap(cacheManager cache.CacheManager, refs RefMap, t *table.Table) {
 	if refs == nil {
 		return
 	}
 	if _, ok := refs[t]; !ok {
 		refs[t] = struct{}{}
 		t.IncrRef()
+		if t.IsRemote() {
+			cacheManager.Pin(t.CacheID())
+		}
 	}
 }
 
@@ -344,7 +348,7 @@ func (s *levelHandler) getInTables(key []byte, keyHash uint64, tables []*table.T
 	for _, table := range tables {
 		result := s.getInTable(key, keyHash, table)
 		if result.Valid() {
-			addTableToRefMap(refs, table)
+			addTableToRefMap(s.db.cacheManager, refs, table)
 			return result
 		}
 	}
@@ -404,7 +408,7 @@ func (s *levelHandler) multiGetLevel0(pairs []keyValuePair, tables []*table.Tabl
 			if val.Valid() {
 				pair.val = val
 				pair.found = true
-				addTableToRefMap(refs, table)
+				addTableToRefMap(s.db.cacheManager, refs, table)
 			}
 		}
 	}
@@ -424,7 +428,7 @@ func (s *levelHandler) multiGetLevelN(pairs []keyValuePair, tables []*table.Tabl
 		if val.Valid() {
 			pair.val = val
 			pair.found = true
-			addTableToRefMap(refs, table)
+			addTableToRefMap(s.db.cacheManager, refs, table)
 		}
 	}
 }

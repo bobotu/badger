@@ -86,7 +86,7 @@ type DB struct {
 
 	blobManger blobManager
 
-	cacheManger cache.CacheManager
+	cacheManager cache.CacheManager
 }
 
 const (
@@ -256,7 +256,7 @@ func Open(opt Options) (db *DB, err error) {
 		valueDirGuard: valueDirLockGuard,
 		orc:           orc,
 		metrics:       y.NewMetricSet(opt.Dir),
-		cacheManger:   cache.NewCacheManager(opt.RemoteDir, opt.MaxSize),
+		cacheManager:  cache.NewCacheManager(opt.RemoteDir, opt.MaxSize),
 	}
 	db.vlog.metrics = db.metrics
 
@@ -383,7 +383,7 @@ func (db *DB) prepareExternalFiles(files []*os.File) ([]*table.Table, error) {
 			return nil, err
 		}
 
-		tbl, err := table.OpenTable(fd.Name(), false, db.opt.TableLoadingMode, db.cacheManger)
+		tbl, err := table.OpenTable(fd.Name(), false, db.opt.TableLoadingMode, db.cacheManager)
 		if err != nil {
 			return nil, err
 		}
@@ -824,7 +824,7 @@ func (db *DB) runFlushMemTable(c *y.Closer) error {
 			return err
 		}
 		if db.opt.ValueThreshold > 0 {
-			bf, err1 := bb.finish(db.cacheManger)
+			bf, err1 := bb.finish(db.cacheManager)
 			if err1 != nil {
 				return err1
 			}
@@ -836,7 +836,7 @@ func (db *DB) runFlushMemTable(c *y.Closer) error {
 		}
 		atomic.StoreUint32(&db.syncedFid, ft.off.fid)
 		fd.Close()
-		tbl, err := table.OpenTable(fileName, false, db.opt.TableLoadingMode, db.cacheManger)
+		tbl, err := table.OpenTable(fileName, false, db.opt.TableLoadingMode, db.cacheManager)
 		if err != nil {
 			log.Infof("ERROR while opening table: %v", err)
 			return err

@@ -29,7 +29,6 @@ import (
 	"sync/atomic"
 
 	"github.com/coocood/badger/cache"
-	"github.com/ngaut/log"
 
 	"github.com/coocood/badger/fileutil"
 	"github.com/coocood/badger/options"
@@ -116,18 +115,12 @@ func (t *Table) Init() error {
 
 // IncrRef increments the refcount (having to do with whether the file should be deleted)
 func (t *Table) IncrRef() {
-	if t.IsRemote() {
-		t.cacheManager.Pin(t.filename)
-	}
 	atomic.AddInt32(&t.ref, 1)
 }
 
 // DecrRef decrements the refcount and possibly deletes the table
 func (t *Table) DecrRef() error {
 	newRef := atomic.AddInt32(&t.ref, -1)
-	if t.IsRemote() {
-		t.cacheManager.Release(t.filename)
-	}
 	if newRef == 0 {
 		// We can safely delete this file, because for all the current files, we always have
 		// at least one reference pointing to them.
@@ -148,6 +141,7 @@ func (t *Table) DecrRef() error {
 
 		if t.IsRemote() {
 			t.cacheManager.Free(t.filename)
+			os.Remove(t.filename + ".idx")
 		}
 	}
 	return nil

@@ -159,7 +159,7 @@ var DefaultOptions = Options{
 	// table.MemoryMap to mmap() the tables.
 	// table.Nothing to not preload the tables.
 	RemoteLevelStart:        1,
-	MaxSize:                 200 << 20,
+	MaxSize:                 1 << 30,
 	MaxTableSize:            64 << 20,
 	NumCompactors:           3,
 	MaxSubCompaction:        3,

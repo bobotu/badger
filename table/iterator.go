@@ -19,6 +19,7 @@ package table
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"sort"
 
@@ -384,6 +385,9 @@ func (itr *Iterator) FillValue(vs *y.ValueStruct) {
 
 // Next follows the y.Iterator interface
 func (itr *Iterator) Next() {
+	if err := recover(); err != nil {
+		panic(fmt.Sprintf("%s enconter error: %s", itr.t.CacheID(), err))
+	}
 	if !itr.reversed {
 		itr.next()
 	} else {
@@ -393,6 +397,9 @@ func (itr *Iterator) Next() {
 
 // Rewind follows the y.Iterator interface
 func (itr *Iterator) Rewind() {
+	if err := recover(); err != nil {
+		panic(fmt.Sprintf("%s enconter error: %s", itr.t.CacheID(), err))
+	}
 	if !itr.reversed {
 		itr.seekToFirst()
 	} else {
@@ -402,6 +409,9 @@ func (itr *Iterator) Rewind() {
 
 // Seek follows the y.Iterator interface
 func (itr *Iterator) Seek(key []byte) {
+	if err := recover(); err != nil {
+		panic(fmt.Sprintf("%s enconter error: %s", itr.t.CacheID(), err))
+	}
 	if !itr.reversed {
 		itr.seek(key)
 	} else {
